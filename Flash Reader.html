@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>チャンク読みフラッシュ・リーダー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .reader-container {
+            height: 380px;
+            background-color: white;
+            border-radius: 1.5rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 0 20px;
+        }
+        
+        .center-guide {
+            position: absolute;
+            left: 20px;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 100px;
+            border-left: 4px solid #3b82f6;
+            border-right: 4px solid #3b82f6;
+            opacity: 0.1;
+            pointer-events: none;
+        }
+
+        .word-main {
+            font-weight: 700;
+            color: #1f2937;
+            text-align: center;
+            line-height: 1.4; /* 行間を少し広げる */
+            z-index: 10;
+            padding: 0 1rem;
+            min-height: 1.2em;
+            transition: transform 0.1s;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* 文字数に応じたサイズ調整クラス */
+        .text-size-lg { font-size: 3.5rem; }
+        .text-size-md { font-size: 2.8rem; }
+        .text-size-sm { font-size: 2.0rem; }
+        
+        .word-sub {
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: #9ca3af;
+            text-align: center;
+            line-height: 1.2;
+            min-height: 1.2em;
+            transition: all 0.3s;
+            max-width: 80%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .slide-up {
+            animation: slideUp 0.1s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(5px); opacity: 0.8; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="w-full max-w-3xl space-y-6">
+        
+        <header class="text-center flex justify-between items-end px-2">
+            <div class="text-left">
+                <h1 class="text-2xl font-bold text-gray-800">
+                    <i class="fas fa-layer-group text-blue-500 mr-2"></i>Flash Reader v4
+                </h1>
+                <p class="text-gray-400 text-xs">長文対応・チャンク読みモード</p>
+            </div>
+            <button id="clearBtn" class="text-xs text-red-400 hover:text-red-600 underline">テキストをクリア</button>
+        </header>
+
+        <div class="reader-container">
+            <div class="center-guide"></div>
+            <div id="prevWord" class="word-sub mb-6 opacity-50"></div>
+            <div id="displayWord" class="word-main text-size-lg">Ready?</div>
+            <div id="nextWord" class="word-sub mt-6 opacity-50"></div>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl shadow-lg space-y-6">
+            <div class="flex items-center justify-center gap-6">
+                <button id="prevBtn" class="text-gray-500 hover:text-blue-600 p-3 rounded-full hover:bg-blue-50 transition" title="戻る (←)">
+                    <i class="fas fa-backward-step fa-xl"></i>
+                </button>
+                <button id="playPauseBtn" class="bg-blue-600 hover:bg-blue-700 text-white w-20 h-20 rounded-full flex items-center justify-center shadow-xl transition transform active:scale-95" title="再生/停止 (Space)">
+                    <i class="fas fa-play fa-2x pl-1"></i>
+                </button>
+                <button id="nextBtn" class="text-gray-500 hover:text-blue-600 p-3 rounded-full hover:bg-blue-50 transition" title="進む (→)">
+                    <i class="fas fa-forward-step fa-xl"></i>
+                </button>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-3 rounded-lg">
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-xs font-bold text-gray-400 whitespace-nowrap"><i class="fas fa-gauge-high mr-1"></i>速度</span>
+                    <input type="range" id="speedRange" min="50" max="600" step="10" value="200" class="flex-grow sm:w-40 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                    <span id="speedValue" class="text-sm font-bold text-blue-600 w-12 text-right">200</span>
+                </div>
+                
+                <div class="w-px h-6 bg-gray-300 hidden sm:block"></div>
+                
+                <!-- チャンクサイズ設定 -->
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-xs font-bold text-gray-400 whitespace-nowrap"><i class="fas fa-text-width mr-1"></i>文字数</span>
+                    <select id="chunkSize" class="bg-white border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1">
+                        <option value="short">短め (〜8文字)</option>
+                        <option value="medium" selected>普通 (〜15文字)</option>
+                        <option value="long">長め (〜25文字)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="relative w-full h-2 bg-gray-200 rounded-full cursor-pointer group" id="progressBarContainer">
+                <div id="progressBar" class="absolute top-0 left-0 h-full bg-blue-500 rounded-full transition-all duration-100" style="width: 0%"></div>
+            </div>
+            
+            <div class="mt-2">
+                <textarea id="textInput" rows="3" class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm leading-relaxed transition" placeholder="ここに読みたい文章を貼り付けてください..."></textarea>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const displayWord = document.getElementById('displayWord');
+        const prevWordEl = document.getElementById('prevWord');
+        const nextWordEl = document.getElementById('nextWord');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const speedRange = document.getElementById('speedRange');
+        const speedValue = document.getElementById('speedValue');
+        const chunkSizeSelect = document.getElementById('chunkSize');
+        const textInput = document.getElementById('textInput');
+        const progressBar = document.getElementById('progressBar');
+        const progressBarContainer = document.getElementById('progressBarContainer');
+
+        let chunks = [];
+        let currentIndex = 0;
+        let isPlaying = false;
+        let timeoutId = null;
+        let baseWPM = 200;
+
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement === textInput) return;
+            if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+            else if (e.code === 'ArrowLeft') step(-1);
+            else if (e.code === 'ArrowRight') step(1);
+        });
+
+        speedRange.addEventListener('input', (e) => {
+            baseWPM = parseInt(e.target.value);
+            speedValue.textContent = baseWPM;
+        });
+        
+        chunkSizeSelect.addEventListener('change', () => {
+             // 設定を変えたら再解析
+             const text = textInput.value.trim();
+             if(text) {
+                 const wasPlaying = isPlaying;
+                 if(wasPlaying) stopReader();
+                 
+                 // 現在の位置（割合）を保存
+                 const progress = chunks.length > 0 ? currentIndex / chunks.length : 0;
+                 
+                 chunks = smartChunk(text);
+                 
+                 // 位置を復元
+                 currentIndex = Math.floor(chunks.length * progress);
+                 updateDisplay();
+                 
+                 if(wasPlaying) startReader();
+             }
+        });
+
+        // ■ 改良版：スマート・チャンキング・ロジック
+        function smartChunk(text) {
+            // 設定された目標文字数
+            let targetLength = 15;
+            const sizeSetting = chunkSizeSelect.value;
+            if (sizeSetting === 'short') targetLength = 8;
+            else if (sizeSetting === 'long') targetLength = 25;
+
+            // 1. まず、改行や句読点で大きく分割する（ここは絶対切る場所）
+            // 文末の句点などは、前の文につける
+            let rawSentences = text.replace(/([。！？\n]+)/g, "$1###SPLIT###").split("###SPLIT###");
+            
+            let finalChunks = [];
+
+            rawSentences.forEach(sentence => {
+                if (!sentence.trim()) return;
+
+                // 2. 文の中で、さらに細かく分ける候補を作る（読点、スペース、括弧）
+                // 読点は区切りとして残す
+                let segments = sentence.split(/([、,，\s　「」『』()（）]+)/);
+                
+                let buffer = "";
+                
+                segments.forEach(seg => {
+                    if (!seg) return;
+
+                    // バッファに追加
+                    buffer += seg;
+
+                    // バッファが目標文字数を超えたら、チャンクとして確定
+                    // ただし、区切り文字（、など）で終わるのが理想
+                    
+                    // 条件A: 目標文字数を超えていて、かつ区切りの良い文字が含まれている
+                    // 条件B: 目標文字数を大幅に超えた（2倍近く）場合は強制分割
+                    
+                    if (buffer.length >= targetLength) {
+                        finalChunks.push(buffer);
+                        buffer = "";
+                    }
+                });
+                
+                // 残ったバッファを追加
+                if (buffer) finalChunks.push(buffer);
+            });
+
+            return finalChunks;
+        }
+
+        function togglePlay() {
+            if (isPlaying) {
+                stopReader();
+            } else {
+                if (chunks.length === 0 || currentIndex >= chunks.length) {
+                    const text = textInput.value.trim();
+                    if (!text) { alert("文章を入力してください"); textInput.focus(); return; }
+                    chunks = smartChunk(text);
+                    if (currentIndex >= chunks.length) currentIndex = 0;
+                }
+                startReader();
+            }
+        }
+        
+        function startReader() {
+            isPlaying = true;
+            playPauseBtn.innerHTML = '<i class="fas fa-pause fa-2x"></i>';
+            playPauseBtn.classList.replace('bg-blue-600', 'bg-orange-500');
+            playNextWord();
+        }
+
+        function stopReader() {
+            isPlaying = false;
+            playPauseBtn.innerHTML = '<i class="fas fa-play fa-2x pl-1"></i>';
+            playPauseBtn.classList.replace('bg-orange-500', 'bg-blue-600');
+            clearTimeout(timeoutId);
+        }
+
+        function step(direction) {
+            stopReader();
+            if (chunks.length === 0) {
+                 const text = textInput.value.trim();
+                 if (text) chunks = smartChunk(text);
+                 else return;
+            }
+            let newIndex = currentIndex + direction;
+            if (newIndex >= 0 && newIndex < chunks.length) {
+                currentIndex = newIndex;
+                updateDisplay();
+            }
+        }
+
+        prevBtn.addEventListener('click', () => step(-1));
+        nextBtn.addEventListener('click', () => step(1));
+
+        clearBtn.addEventListener('click', () => {
+            stopReader();
+            textInput.value = '';
+            chunks = [];
+            currentIndex = 0;
+            displayWord.textContent = 'Ready?';
+            prevWordEl.textContent = '';
+            nextWordEl.textContent = '';
+            progressBar.style.width = '0%';
+        });
+        
+        progressBarContainer.addEventListener('click', (e) => {
+             if (chunks.length === 0) return;
+             stopReader();
+             const rect = progressBarContainer.getBoundingClientRect();
+             const x = e.clientX - rect.left;
+             const percentage = x / rect.width;
+             currentIndex = Math.floor(chunks.length * percentage);
+             updateDisplay();
+        });
+
+        function playNextWord() {
+            if (!isPlaying) return;
+            if (currentIndex >= chunks.length) { stopReader(); currentIndex = 0; return; }
+
+            updateDisplay();
+
+            const word = chunks[currentIndex];
+            let weight = 1.0;
+            
+            // 文字数によるウェイト（長い文章は読む時間を長く）
+            weight += (word.length * 0.05); 
+            
+            // 句読点によるウェイト
+            if (word.match(/[。！？]/)) weight += 0.8;
+            
+            const baseInterval = 60000 / baseWPM;
+            const nextInterval = baseInterval * weight;
+
+            currentIndex++;
+            timeoutId = setTimeout(playNextWord, nextInterval);
+        }
+
+        function updateDisplay() {
+            if (chunks[currentIndex]) {
+                const text = chunks[currentIndex];
+                displayWord.textContent = text;
+                
+                // 文字数に応じてフォントサイズを変更
+                displayWord.className = 'word-main slide-up'; // リセット
+                if (text.length > 20) displayWord.classList.add('text-size-sm');
+                else if (text.length > 10) displayWord.classList.add('text-size-md');
+                else displayWord.classList.add('text-size-lg');
+            }
+            
+            if (currentIndex > 0 && chunks[currentIndex - 1]) prevWordEl.textContent = chunks[currentIndex - 1];
+            else prevWordEl.textContent = '';
+            
+            if (currentIndex < chunks.length - 1 && chunks[currentIndex + 1]) nextWordEl.textContent = chunks[currentIndex + 1];
+            else nextWordEl.textContent = '';
+
+            const progress = chunks.length > 0 ? ((currentIndex) / chunks.length) * 100 : 0;
+            progressBar.style.width = `${progress}%`;
+        }
+        
+        // 初期化：速度表示のみ
+        speedValue.textContent = baseWPM;
+    </script>
+</body>
+</html>
